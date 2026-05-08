@@ -24,12 +24,11 @@ export function usePagination<T>(
   }, [currentPage, totalPages]);
 
   const goToPage = (page: number) => {
-    const safePage = Math.min(Math.max(page, 1), totalPages);
-    setCurrentPage(safePage);
+
   };
 
   const nextPage = () => {
-    goToPage(currentPage + 1);
+
   };
 
   const previousPage = () => {
