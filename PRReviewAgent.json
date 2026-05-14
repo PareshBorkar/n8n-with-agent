@@ -1,0 +1,228 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "owner": {
+          "__rl": true,
+          "value": "PareshBorkar",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "n8n-with-agent",
+          "mode": "list",
+          "cachedResultName": "n8n-with-agent",
+          "cachedResultUrl": "https://github.com/PareshBorkar/n8n-with-agent"
+        },
+        "events": [
+          "pull_request"
+        ],
+        "options": {}
+      },
+      "type": "n8n-nodes-base.githubTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1312,
+        -112
+      ],
+      "id": "9ce5002b-2a12-4156-ba96-26d76b498e4f",
+      "name": "Github Trigger",
+      "webhookId": "2e705999-4a57-44f3-a76b-72d2fa29f4db",
+      "credentials": {
+        "githubApi": {
+          "id": "q0Xr3BVsQrtT1k8H",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.body.pull_request.url }}/files",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1088,
+        -112
+      ],
+      "id": "76b7d10d-16c3-42c7-bb35-6b55e1ed7ca3",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "1tOslFAH9FqYxy5q",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node\n// Input expected: items with file change details\n// Example fields: filename, status, patch, additions, deletions\n\nreturn items.map((item) => {\n  const file = item.json;\n\n  const fileName = file.filename || file.path || \"unknown-file\";\n  const status = file.status || \"modified\";\n  const patch = file.patch || file.diff || \"\";\n  const additions = file.additions ?? \"unknown\";\n  const deletions = file.deletions ?? \"unknown\";\n\n  const prompt = `\nYou are a senior software engineer reviewing a code change.\n\nReview the following file change carefully.\n\nFile: ${fileName}\nStatus: ${status}\nAdditions: ${additions}\nDeletions: ${deletions}\n\nCode diff:\n\\`\\`\\`diff\n${patch}\n\\`\\`\\`\n\nPlease provide a detailed review covering:\n\n1. What changed in this file\n2. Why this change may have been made\n3. Possible bugs or edge cases\n4. Security concerns, if any\n5. Performance concerns, if any\n6. Code readability and maintainability feedback\n7. Suggested improvements\n8. Whether this change looks safe to merge\n\nRespond in this format: JSON\n{\n\"body\":\"\",\n\"position\":\"<REPLACE WITH ACTUAL LINE NUMBER>\",\n\"path\": ${fileName}\n}\n`;\n\n  return {\n    json: {\n      ...file,\n      reviewPrompt: prompt.trim(),\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -864,
+        -112
+      ],
+      "id": "8c2d82bc-b10b-42d0-89db-f6f0624e38e8",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Github Trigger').item.json.body.pull_request.url }}/reviews",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "body",
+              "value": "={{ $json.comments[0].body }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -64,
+        -112
+      ],
+      "id": "f2ddb6f2-51c4-4f2b-851d-569cd315d63f",
+      "name": "HTTP Request1",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "noPeTzRE0ILMnw05",
+          "name": "Bearer Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "models/gemini-3-flash-preview"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.reviewPrompt }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        -640,
+        -112
+      ],
+      "id": "916c5560-5a95-47e6-ab46-88008c1e53d7",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "oZN6a7sm9Eq3j6H8",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\nconst comments = [];\n\n\nitems.push({\n  comments: JSON.parse($input.first().json.content.parts[0].text),\n  //num: $input.all()[0].json.message.content.number\n});\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -288,
+        -112
+      ],
+      "id": "4b5a85c8-4428-4ec5-8c32-b6b80a170e26",
+      "name": "Return in code format"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Github Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        []
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Return in code format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return in code format": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "67d63dd3-ac00-4724-9632-00d08f957fcc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f58671cb832212d90da79b00e286fbbbf6a7002bd4d75979613ceb2a039ad311"
+  },
+  "id": "ZKA9cRF9hJazt9ti",
+  "tags": []
+}
