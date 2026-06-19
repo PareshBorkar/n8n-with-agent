@@ -1,0 +1,182 @@
+{
+  "name": "Resume RAG Chat QA",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {
+          "responseMode": "lastNode"
+        }
+      },
+      "id": "chat-trigger",
+      "name": "Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const question = $json.chatInput || $json.text || $json.message || '';\n\nreturn [{\n  json: {\n    question,\n    geminiBody: {\n      model: 'models/gemini-embedding-001',\n      content: {\n        parts: [\n          {\n            text: String(question || 'test question')\n          }\n        ]\n      }\n    }\n  }\n}];"
+      },
+      "id": "prepare-question-embedding",
+      "name": "Prepare Question Embedding",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ $json.geminiBody }}"
+      },
+      "id": "generate-question-embedding",
+      "name": "Generate Question Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    question: $('Prepare Question Embedding').item.json.question,\n    questionEmbedding: '[' + $json.embedding.values.join(',') + ']'\n  }\n}];"
+      },
+      "id": "prepare-vector-search",
+      "name": "Prepare Vector Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT content, metadata\nFROM documents\nORDER BY embedding <-> $1::vector\nLIMIT 5;",
+        "options": {
+          "queryReplacement": "={{ [ $json.questionEmbedding ] }}"
+        }
+      },
+      "id": "search-pgvector",
+      "name": "Search PGVector",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const question = $('Prepare Vector Search').item.json.question;\nconst rows = $input.all().map(item => item.json);\n\nconst context = rows\n  .map((row, index) => `Chunk ${index + 1}:\\n${row.content}`)\n  .join('\\n\\n---\\n\\n');\n\nreturn [{\n  json: {\n    question,\n    context,\n    geminiBody: {\n      contents: [\n        {\n          parts: [\n            {\n              text: `You are a resume RAG assistant. Answer using only the context below.\\n\\nQuestion:\\n${question}\\n\\nContext:\\n${context}\\n\\nIf the answer is not present in the context, say: I don't know based on the uploaded document.`\n            }\n          ]\n        }\n      ]\n    }\n  }\n}];"
+      },
+      "id": "prepare-answer-prompt",
+      "name": "Prepare Answer Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ $json.geminiBody }}"
+      },
+      "id": "generate-gemini-answer",
+      "name": "Generate Gemini Answer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = $json.candidates?.[0]?.content?.parts?.[0]?.text || 'No answer generated.';\n\nreturn [{\n  json: {\n    output\n  }\n}];"
+      },
+      "id": "format-chat-output",
+      "name": "Format Chat Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 300]
+    }
+  ],
+  "connections": {
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Question Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Question Embedding": {
+      "main": [
+        [
+          {
+            "node": "Generate Question Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Question Embedding": {
+      "main": [
+        [
+          {
+            "node": "Prepare Vector Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Vector Search": {
+      "main": [
+        [
+          {
+            "node": "Search PGVector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search PGVector": {
+      "main": [
+        [
+          {
+            "node": "Prepare Answer Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Answer Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Gemini Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Gemini Answer": {
+      "main": [
+        [
+          {
+            "node": "Format Chat Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

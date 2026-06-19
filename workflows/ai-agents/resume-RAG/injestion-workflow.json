@@ -1,0 +1,128 @@
+{
+  "name": "Upload PDF Resume RAG to PGVector",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Upload Resume PDF",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "PDF File",
+              "fieldType": "file",
+              "requiredField": true
+            }
+          ]
+        }
+      },
+      "id": "upload-form",
+      "name": "Upload PDF Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "resume-rag-upload"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "PDF_File"
+      },
+      "id": "extract-pdf",
+      "name": "Extract PDF Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.text || $json.data || '';\nconst chunkSize = 800;\nconst overlap = 100;\nconst chunks = [];\n\nfor (let i = 0; i < text.length; i += chunkSize - overlap) {\n  const chunk = text.slice(i, i + chunkSize).trim();\n  if (chunk.length > 0) {\n    chunks.push({\n      json: {\n        content: chunk,\n        metadata: {\n          source: 'uploaded-resume.pdf',\n          type: 'resume',\n          chunkIndex: chunks.length\n        }\n      }\n    });\n  }\n}\n\nreturn chunks;"
+      },
+      "id": "split-text",
+      "name": "Split Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      content: $json.content,\n      metadata: $json.metadata,\n      geminiBody: {\n        model: 'models/text-embedding-004',\n        content: {\n          parts: [\n            {\n              text: String($json.content || 'test text')\n            }\n          ]\n        }\n      }\n    }\n  }\n];"
+      },
+      "id": "prepare-gemini-body",
+      "name": "Prepare Gemini Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ $json.geminiBody }}"
+      },
+      "id": "gemini-embedding",
+      "name": "Generate Gemini Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1020, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_GEMINI_HEADER_AUTH_ID",
+          "name": "Gemini API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      content: $('Prepare Gemini Body').item.json.content,\n      metadata: $('Prepare Gemini Body').item.json.metadata,\n      embedding: $json.embedding.values\n    }\n  }\n];"
+      },
+      "id": "prepare-insert",
+      "name": "Prepare Insert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1280, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO documents (content, metadata, embedding)\nVALUES ($1, $2::jsonb, $3::vector);",
+        "options": {
+          "queryReplacement": "={{ [\n  $json.content,\n  JSON.stringify($json.metadata),\n  '[' + $json.embedding.join(',') + ']'\n] }}"
+        }
+      },
+      "id": "insert-pgvector",
+      "name": "Insert into PGVector",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1540, 300],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID",
+          "name": "Local Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Upload PDF Form": {
+      "main": [[{ "node": "Extract PDF Text", "type": "main", "index": 0 }]]
+    },
+    "Extract PDF Text": {
+      "main": [[{ "node": "Split Text", "type": "main", "index": 0 }]]
+    },
+    "Split Text": {
+      "main": [[{ "node": "Prepare Gemini Body", "type": "main", "index": 0 }]]
+    },
+    "Prepare Gemini Body": {
+      "main": [[{ "node": "Generate Gemini Embedding", "type": "main", "index": 0 }]]
+    },
+    "Generate Gemini Embedding": {
+      "main": [[{ "node": "Prepare Insert", "type": "main", "index": 0 }]]
+    },
+    "Prepare Insert": {
+      "main": [[{ "node": "Insert into PGVector", "type": "main", "index": 0 }]]
+    }
+  }
+}
